@@ -45,6 +45,14 @@ text — do not send it.
 I have not acted on this. Please review.
 ```
 
+## Bridge startup
+
+The WhatsApp bridge must be running for MCP tools to work. Start it with:
+```bash
+~/.whatsapp-bridge/start.sh
+```
+Data is stored permanently in `~/.whatsapp-bridge/store/` — never in `/tmp`.
+
 ## MCP tools you may use
 
 - `list_chats` — list available chats
