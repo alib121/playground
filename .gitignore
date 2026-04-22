@@ -3,3 +3,4 @@ admin_memories.md
 __pycache__/
 *.pyc
 .env
+.claude/settings.local.json
