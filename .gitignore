@@ -1,0 +1,5 @@
+admin_config.json
+admin_memories.md
+__pycache__/
+*.pyc
+.env
