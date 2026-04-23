@@ -1,0 +1,11 @@
+admin_config.json
+admin_memories.md
+MEMORY.md
+__pycache__/
+*.pyc
+.env
+.claude/settings.local.json
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json
