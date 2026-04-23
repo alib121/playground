@@ -2,7 +2,7 @@
 name: memory
 description: Persistent personal memory manager. Use proactively to store facts, preferences, reminders, ongoing tasks, and context the user wants remembered across sessions. Also use to recall what was saved in past sessions before starting a new task.
 model: haiku
-tools: Read, Write, Edit, Glob
+tools: Read, Write, Edit, Glob, mcp__mempalace
 memory: user
 color: purple
 ---
