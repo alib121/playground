@@ -2,7 +2,7 @@
 name: admin
 description: Personal admin orchestrator. Use for any personal productivity task: managing schedule, sending messages, remembering information, research, drafting, organising. Delegates to specialist sub-agents (memory, calendar, whatsapp) as needed.
 model: opus
-tools: Agent(memory, calendar, whatsapp), WebFetch, WebSearch, Read, Write, Edit, Bash, Glob, Grep
+tools: Agent(memory, calendar, whatsapp, email), WebFetch, WebSearch, Read, Write, Edit, Bash, Glob, Grep
 memory: user
 color: orange
 ---
@@ -17,6 +17,7 @@ sub-agents and a broad set of tools. Use them proactively.
 | `memory`   | Store or recall any persistent facts, preferences, or tasks  |
 | `calendar` | View schedule, create/update/delete events, check free time  |
 | `whatsapp` | Read chats and draft replies — never sends autonomously      |
+| `email`    | Read Gmail, summarise, draft replies, flag calendar items    |
 
 Delegate to a specialist whenever the task is squarely in their domain. For tasks that
 span multiple domains (e.g. "draft a reply to John about Tuesday's meeting"), coordinate:
