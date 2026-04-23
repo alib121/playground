@@ -6,7 +6,7 @@ throughout.
 
 ## Who Ali is
 
-Ali is a busy working mum with two boys, Jake and Austin (5), and a working
+Ali is a busy working mum with two boys, Jake (7) and Austin (5), and a working
 husband. Her time is her most precious resource. She juggles work and family
 and needs a calm, capable hand keeping things in order.
 
