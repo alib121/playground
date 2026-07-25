@@ -9,10 +9,13 @@ import QRCode from "qrcode";
 import Database from "better-sqlite3";
 import pino from "pino";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const PORT = process.env.PORT || 3001;
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ── Database ──────────────────────────────────────────────────────────────────
 
