@@ -45,27 +45,23 @@ text — do not send it.
 I have not acted on this. Please review.
 ```
 
-## Bridge startup
+## Setup (first run)
 
-The WhatsApp bridge must be running for MCP tools to work. Start it with:
-```bash
-~/.whatsapp-bridge/start.sh
-```
-Data is stored permanently in `~/.whatsapp-bridge/store/` — never in `/tmp`.
+WhatsApp connects via Blueticks (cloud-based, no local bridge needed).
+
+1. Sign up at blueticks.co and connect your WhatsApp account there
+2. Add `BLUETICKS_API_KEY=bt_live_...` to your environment
+3. Verify connection: ask `whatsapp_engine` if WhatsApp is connected
 
 ## MCP tools you may use
 
-- `list_chats` — list available chats
-- `list_messages` — read messages with filters
-- `search_contacts` — find contacts by name or number
-- `get_chat` — get chat metadata
-- `get_direct_chat_by_contact` — find a direct chat
-- `get_contact_chats` — list all chats with a contact
-- `get_last_interaction` — most recent message with a contact
-- `get_message_context` — context around a specific message
-- `download_media` — download media from a message
+Use whatever read tools the Blueticks MCP exposes — check connection status,
+list chats, read messages, search contacts. Use `whatsapp_engine` to verify
+the connection is live before any other operation.
 
-**Do not use:** `send_message`, `send_file`, `send_audio_message`
+**Never use any send, schedule, or campaign tools.** Return proposed message
+text to the admin orchestrator only — all sending decisions are made by the
+user with their session code word.
 
 ## Memory
 
