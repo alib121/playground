@@ -28,9 +28,13 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import time
+import urllib.parse
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -108,6 +112,32 @@ def _send_and_collect(client: anthropic.Anthropic, session_id: str, message: str
                 if event.stop_reason.type != "requires_action":
                     break
     return "".join(parts)
+
+
+_WHATSAPP_RE = re.compile(
+    r"whatsapp|whats\s*app|school\s*chat|p&c|group\s*chat", re.IGNORECASE
+)
+
+
+def _fetch_whatsapp_context(message: str) -> str:
+    """If the message mentions WhatsApp, fetch recent group messages as context."""
+    if not _WHATSAPP_RE.search(message):
+        return ""
+    url = os.environ.get("WHATSAPP_SERVICE_URL", "").rstrip("/")
+    if not url:
+        return ""
+    since = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        req_url = f"{url}/messages?since={urllib.parse.quote(since)}&limit=300"
+        with urllib.request.urlopen(req_url, timeout=5) as resp:
+            msgs = json.loads(resp.read())
+        if not msgs:
+            return ""
+        lines = [f"[{m['time']} {m['chat_name']} — {m['sender_name']}]: {m['text']}" for m in msgs]
+        return "[Recent WhatsApp group messages — last 14 days:\n" + "\n".join(lines) + "\n]"
+    except Exception as exc:
+        logger.warning("WhatsApp service unavailable: %s", exc)
+        return ""
 
 
 def _save_memory(client: anthropic.Anthropic, session_id: str) -> bool:
@@ -233,9 +263,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
+    # Inject WhatsApp context if the message is asking about WhatsApp
+    wa_context = await loop.run_in_executor(_executor, _fetch_whatsapp_context, text)
+    augmented_text = f"{wa_context}\n\nUser: {text}" if wa_context else text
+
     try:
         response = await loop.run_in_executor(
-            _executor, _send_and_collect, client, session_id, text
+            _executor, _send_and_collect, client, session_id, augmented_text
         )
     except Exception as exc:
         logger.warning("Session error (%s) — recreating and retrying", exc)
@@ -244,7 +278,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         session_id = _sessions[chat_id]["session_id"]
         try:
             response = await loop.run_in_executor(
-                _executor, _send_and_collect, client, session_id, text
+                _executor, _send_and_collect, client, session_id, augmented_text
             )
         except Exception as exc2:
             logger.error("Retry failed: %s", exc2)
