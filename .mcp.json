@@ -1,13 +1,11 @@
 {
   "mcpServers": {
-    "whatsapp": {
-      "command": "/root/.local/bin/uv",
-      "args": [
-        "--directory",
-        "/tmp/whatsapp-mcp/whatsapp-mcp-server",
-        "run",
-        "main.py"
-      ]
+    "blueticks": {
+      "command": "npx",
+      "args": ["-y", "@blueticks/mcp"],
+      "env": {
+        "BLUETICKS_API_KEY": "${BLUETICKS_API_KEY}"
+      }
     }
   }
 }
