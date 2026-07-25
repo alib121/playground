@@ -6,48 +6,72 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import express from "express";
 import QRCode from "qrcode";
-import Database from "better-sqlite3";
 import pino from "pino";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const PORT = process.env.PORT || 3001;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// ── Database ──────────────────────────────────────────────────────────────────
+// ── Storage (JSON file, no native deps) ──────────────────────────────────────
 
-const db = new Database(path.join(DATA_DIR, "messages.db"));
-db.exec(`
-  CREATE TABLE IF NOT EXISTS messages (
-    id          TEXT    PRIMARY KEY,
-    chat_id     TEXT    NOT NULL,
-    chat_name   TEXT,
-    sender_name TEXT,
-    text        TEXT    NOT NULL,
-    timestamp   INTEGER NOT NULL,
-    is_group    INTEGER DEFAULT 0
-  );
-  CREATE TABLE IF NOT EXISTS chats (
-    id   TEXT PRIMARY KEY,
-    name TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages (chat_id, timestamp);
-`);
+const MESSAGES_FILE = path.join(DATA_DIR, "messages.json");
+let messages = [];
 
-const stmtSaveChat = db.prepare("INSERT OR REPLACE INTO chats (id, name) VALUES (?, ?)");
-const stmtSaveMsg = db.prepare(`
-  INSERT OR IGNORE INTO messages (id, chat_id, chat_name, sender_name, text, timestamp, is_group)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
-`);
+if (fs.existsSync(MESSAGES_FILE)) {
+  try {
+    messages = JSON.parse(fs.readFileSync(MESSAGES_FILE, "utf8"));
+  } catch {
+    messages = [];
+  }
+}
+
+function saveMessage(msg) {
+  messages.push(msg);
+  if (messages.length > 10000) messages = messages.slice(-10000);
+  fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messages));
+}
+
+function queryMessages({ chatName, sinceTs, limit }) {
+  return messages
+    .filter((m) => m.is_group && m.timestamp >= sinceTs)
+    .filter(
+      (m) =>
+        !chatName ||
+        m.chat_name.toLowerCase().includes(chatName.toLowerCase())
+    )
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-limit)
+    .map((m) => ({
+      ...m,
+      time: new Date(m.timestamp * 1000)
+        .toISOString()
+        .slice(0, 16)
+        .replace("T", " "),
+    }));
+}
+
+function listChats() {
+  const latest = {};
+  for (const m of messages) {
+    if (!m.is_group) continue;
+    if (!latest[m.chat_id] || m.timestamp > latest[m.chat_id].timestamp) {
+      latest[m.chat_id] = m;
+    }
+  }
+  return Object.values(latest)
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .map((m) => ({ chat_id: m.chat_id, chat_name: m.chat_name, last_ts: m.timestamp }));
+}
 
 // ── WhatsApp socket ───────────────────────────────────────────────────────────
 
 let currentQR = null;
 let connectionState = "starting";
 const groupNames = {};
+const seenIds = new Set(messages.map((m) => m.id));
 
 async function startSocket() {
   const { state, saveCreds } = await useMultiFileAuthState(
@@ -86,17 +110,15 @@ async function startSocket() {
 
   sock.ev.on("groups.update", (updates) => {
     for (const u of updates) {
-      if (u.id && u.subject) {
-        groupNames[u.id] = u.subject;
-        stmtSaveChat.run(u.id, u.subject);
-      }
+      if (u.id && u.subject) groupNames[u.id] = u.subject;
     }
   });
 
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+  sock.ev.on("messages.upsert", async ({ messages: msgs, type }) => {
     if (type !== "notify") return;
-    for (const msg of messages) {
+    for (const msg of msgs) {
       if (!msg.message || msg.key.fromMe) continue;
+      if (seenIds.has(msg.key.id)) continue;
 
       const contentType = getContentType(msg.message);
       const text =
@@ -115,21 +137,20 @@ async function startSocket() {
           const meta = await sock.groupMetadata(chatId);
           chatName = meta.subject;
           groupNames[chatId] = chatName;
-          stmtSaveChat.run(chatId, chatName);
         } catch {}
       }
 
-      try {
-        stmtSaveMsg.run(
-          msg.key.id,
-          chatId,
-          chatName,
-          msg.pushName || "unknown",
-          text.trim(),
-          Number(msg.messageTimestamp),
-          isGroup ? 1 : 0
-        );
-      } catch {}
+      const record = {
+        id: msg.key.id,
+        chat_id: chatId,
+        chat_name: chatName,
+        sender_name: msg.pushName || "unknown",
+        text: text.trim(),
+        timestamp: Number(msg.messageTimestamp),
+        is_group: isGroup ? 1 : 0,
+      };
+      seenIds.add(record.id);
+      saveMessage(record);
     }
   });
 }
@@ -142,7 +163,6 @@ app.get("/status", (_req, res) => {
   res.json({ status: connectionState });
 });
 
-// Visit this URL in a browser and scan with WhatsApp
 app.get("/qr", async (_req, res) => {
   if (!currentQR) {
     return res.status(404).json({
@@ -157,49 +177,16 @@ app.get("/qr", async (_req, res) => {
   res.send(png);
 });
 
-// List group chats seen so far
 app.get("/chats", (_req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT chat_id, chat_name, MAX(timestamp) as last_ts
-       FROM messages WHERE is_group = 1
-       GROUP BY chat_id ORDER BY last_ts DESC`
-    )
-    .all();
-  res.json(rows);
+  res.json(listChats());
 });
 
-// GET /messages?chat_name=Swanny&since=2026-07-11T00:00:00Z&limit=200
 app.get("/messages", (req, res) => {
   const { chat_name, since, limit = 200 } = req.query;
   const sinceTs = since
     ? Math.floor(new Date(since).getTime() / 1000)
     : Math.floor(Date.now() / 1000) - 14 * 86400;
-
-  const rows = chat_name
-    ? db
-        .prepare(
-          `SELECT sender_name, text, timestamp, chat_name
-           FROM messages
-           WHERE lower(chat_name) LIKE lower(?) AND timestamp >= ?
-           ORDER BY timestamp ASC LIMIT ?`
-        )
-        .all(`%${chat_name}%`, sinceTs, Number(limit))
-    : db
-        .prepare(
-          `SELECT sender_name, text, timestamp, chat_name
-           FROM messages
-           WHERE timestamp >= ? AND is_group = 1
-           ORDER BY timestamp ASC LIMIT ?`
-        )
-        .all(sinceTs, Number(limit));
-
-  res.json(
-    rows.map((r) => ({
-      ...r,
-      time: new Date(r.timestamp * 1000).toISOString().slice(0, 16).replace("T", " "),
-    }))
-  );
+  res.json(queryMessages({ chatName: chat_name, sinceTs, limit: Number(limit) }));
 });
 
 startSocket();
