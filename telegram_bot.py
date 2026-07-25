@@ -92,11 +92,11 @@ def _create_session(client: anthropic.Anthropic, config: dict, memory_file_id: O
 
 def _send_and_collect(client: anthropic.Anthropic, session_id: str, message: str) -> str:
     parts: list[str] = []
-    with client.beta.sessions.stream(session_id=session_id) as stream:
-        client.beta.sessions.events.send(
-            session_id=session_id,
-            events=[{"type": "user.message", "content": [{"type": "text", "text": message}]}],
-        )
+    client.beta.sessions.events.send(
+        session_id=session_id,
+        events=[{"type": "user.message", "content": [{"type": "text", "text": message}]}],
+    )
+    with client.beta.sessions.events.stream(session_id=session_id) as stream:
         for event in stream:
             if event.type == "agent.message":
                 for block in event.content:

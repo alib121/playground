@@ -88,18 +88,16 @@ def delete_file_quietly(client: anthropic.Anthropic, file_id: str) -> None:
 
 def stream_turn(client: anthropic.Anthropic, session_id: str, message: str) -> None:
     """Send *message*, stream the agent's response, block until the turn is done."""
-    with client.beta.sessions.stream(session_id=session_id) as stream:
-        # Send the message while the stream is open so we catch the earliest events.
-        client.beta.sessions.events.send(
-            session_id=session_id,
-            events=[
-                {
-                    "type": "user.message",
-                    "content": [{"type": "text", "text": message}],
-                }
-            ],
-        )
-
+    client.beta.sessions.events.send(
+        session_id=session_id,
+        events=[
+            {
+                "type": "user.message",
+                "content": [{"type": "text", "text": message}],
+            }
+        ],
+    )
+    with client.beta.sessions.events.stream(session_id=session_id) as stream:
         for event in stream:
             if event.type == "agent.message":
                 for block in event.content:
