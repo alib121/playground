@@ -1,8 +1,0 @@
-[phases.setup]
-aptPkgs = ["python3", "python-is-python3", "make", "g++", "git"]
-
-[phases.install]
-cmds = ["npm install"]
-
-[start]
-cmd = "node index.js"
