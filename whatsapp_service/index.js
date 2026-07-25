@@ -10,6 +10,10 @@ import pino from "pino";
 import path from "path";
 import fs from "fs";
 
+process.on("uncaughtException", (err) => { console.error("FATAL:", err.stack); process.exit(1); });
+process.on("unhandledRejection", (reason) => { console.error("UNHANDLED:", reason); process.exit(1); });
+console.log("WhatsApp service starting...");
+
 const DATA_DIR = process.env.DATA_DIR || "/data";
 const PORT = process.env.PORT || 3001;
 
