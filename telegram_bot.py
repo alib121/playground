@@ -126,10 +126,12 @@ def _fetch_whatsapp_context(message: str) -> str:
     url = os.environ.get("WHATSAPP_SERVICE_URL", "").rstrip("/")
     if not url:
         return ""
+    secret = os.environ.get("WHATSAPP_API_SECRET", "")
     since = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         req_url = f"{url}/messages?since={urllib.parse.quote(since)}&limit=300"
-        with urllib.request.urlopen(req_url, timeout=5) as resp:
+        req = urllib.request.Request(req_url, headers={"x-api-secret": secret} if secret else {})
+        with urllib.request.urlopen(req, timeout=5) as resp:
             msgs = json.loads(resp.read())
         if not msgs:
             return ""

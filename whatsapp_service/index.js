@@ -161,7 +161,16 @@ async function startSocket() {
 
 // ── HTTP API ──────────────────────────────────────────────────────────────────
 
+const API_SECRET = process.env.API_SECRET;
+
 const app = express();
+
+function requireSecret(req, res, next) {
+  if (!API_SECRET) return next();
+  const token = req.headers["x-api-secret"] || req.query.secret;
+  if (token !== API_SECRET) return res.status(401).json({ error: "Unauthorized" });
+  next();
+}
 
 app.get("/status", (_req, res) => {
   res.json({ status: connectionState });
@@ -181,11 +190,11 @@ app.get("/qr", async (_req, res) => {
   res.send(png);
 });
 
-app.get("/chats", (_req, res) => {
+app.get("/chats", requireSecret, (_req, res) => {
   res.json(listChats());
 });
 
-app.get("/messages", (req, res) => {
+app.get("/messages", requireSecret, (req, res) => {
   const { chat_name, since, limit = 200 } = req.query;
   const sinceTs = since
     ? Math.floor(new Date(since).getTime() / 1000)
