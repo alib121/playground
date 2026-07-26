@@ -124,7 +124,10 @@ _CALENDAR_READ_RE = re.compile(
 )
 
 _CALENDAR_WRITE_RE = re.compile(
-    r"add.{0,20}(calendar|diary)|put.{0,20}(calendar|diary)|schedule.{0,30}(appointment|meeting|call)|book.{0,20}(appointment|meeting)|create.{0,20}event|remind me.{0,20}(appointment|meeting)",
+    r"\b(add|schedule|book|put in|create|set up)\b.{0,80}"
+    r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"today|tomorrow|next week|\d+\s*(am|pm)|at\s+\d+|\d+:\d+|"
+    r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)",
     re.IGNORECASE
 )
 
