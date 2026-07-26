@@ -215,8 +215,10 @@ def _add_calendar_event(client: anthropic.Anthropic, message: str) -> str:
     """Try to extract and create a calendar event. Returns a confirmation string or ''."""
     if not _CALENDAR_WRITE_RE.search(message):
         return ""
+    logger.info("Calendar write triggered for: %s", message[:80])
     service = _get_calendar_service()
     if not service:
+        logger.warning("Calendar write: no service available")
         return ""
     tz = os.environ.get("CALENDAR_TIMEZONE", "Australia/Sydney")
     today = datetime.now().strftime("%A %d %B %Y")
@@ -227,11 +229,16 @@ def _add_calendar_event(client: anthropic.Anthropic, message: str) -> str:
             messages=[{"role": "user", "content": (
                 f"Today is {today}. Extract a calendar event from this message as JSON with keys: "
                 f"title (string), date (YYYY-MM-DD), time (HH:MM 24h), duration_hours (number, default 1). "
-                f"Return ONLY the JSON or null if no clear event. Message: \"{message}\""
+                f"Return ONLY valid JSON (no markdown, no code fences) or the word null. Message: \"{message}\""
             )}],
         )
         raw = extraction.content[0].text.strip()
+        logger.info("Calendar extraction raw: %s", raw[:200])
+        # Strip markdown code fences if the model added them
+        if raw.startswith("```"):
+            raw = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw, flags=re.DOTALL).strip()
         if raw.lower() == "null" or not raw.startswith("{"):
+            logger.info("Calendar extraction returned no event")
             return ""
         event_data = json.loads(raw)
         start_str = f"{event_data['date']}T{event_data['time']}:00"
@@ -246,6 +253,7 @@ def _add_calendar_event(client: anthropic.Anthropic, message: str) -> str:
             },
         ).execute()
         friendly = start_dt.strftime("%A %d %B at %H:%M")
+        logger.info("Calendar event created: %s at %s", event_data["title"], friendly)
         return f"[I've added '{event_data['title']}' to the calendar: {friendly}]"
     except Exception as exc:
         logger.warning("Calendar add failed: %s", exc)
