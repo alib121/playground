@@ -118,6 +118,16 @@ _WHATSAPP_RE = re.compile(
     r"whatsapp|whats\s*app|school\s*chat|p&c|group\s*chat", re.IGNORECASE
 )
 
+_CALENDAR_READ_RE = re.compile(
+    r"calendar|schedule|diary|appointment|meeting|when is|what.s on|today|tomorrow|this week|next week|what do i have",
+    re.IGNORECASE
+)
+
+_CALENDAR_WRITE_RE = re.compile(
+    r"add.{0,20}(calendar|diary)|put.{0,20}(calendar|diary)|schedule.{0,30}(appointment|meeting|call)|book.{0,20}(appointment|meeting)|create.{0,20}event|remind me.{0,20}(appointment|meeting)",
+    re.IGNORECASE
+)
+
 
 def _fetch_whatsapp_context(message: str) -> str:
     """If the message mentions WhatsApp, fetch recent group messages as context."""
@@ -139,6 +149,103 @@ def _fetch_whatsapp_context(message: str) -> str:
         return "[Recent WhatsApp group messages — last 14 days:\n" + "\n".join(lines) + "\n]"
     except Exception as exc:
         logger.warning("WhatsApp service unavailable: %s", exc)
+        return ""
+
+
+def _get_calendar_service():
+    token_json = os.environ.get("GOOGLE_CALENDAR_TOKEN", "")
+    if not token_json:
+        return None
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+        SCOPES = [
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/calendar.events",
+        ]
+        creds = Credentials.from_authorized_user_info(json.loads(token_json), SCOPES)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        return build("calendar", "v3", credentials=creds)
+    except Exception as exc:
+        logger.warning("Calendar auth failed: %s", exc)
+        return None
+
+
+def _fetch_calendar_context(message: str) -> str:
+    if not _CALENDAR_READ_RE.search(message):
+        return ""
+    service = _get_calendar_service()
+    if not service:
+        return ""
+    try:
+        now = datetime.now(timezone.utc)
+        result = service.events().list(
+            calendarId="primary",
+            timeMin=now.isoformat(),
+            timeMax=(now + timedelta(days=14)).isoformat(),
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=20,
+        ).execute()
+        events = result.get("items", [])
+        if not events:
+            return "[Calendar: no upcoming events in the next 14 days]"
+        lines = []
+        for e in events:
+            start = e["start"].get("dateTime", e["start"].get("date", ""))
+            if "T" in start:
+                try:
+                    dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                    start = dt.strftime("%a %d %b %H:%M")
+                except Exception:
+                    pass
+            lines.append(f"- {start}: {e.get('summary', '(no title)')}")
+        return "[Upcoming calendar events (next 14 days):\n" + "\n".join(lines) + "\n]"
+    except Exception as exc:
+        logger.warning("Calendar fetch failed: %s", exc)
+        return ""
+
+
+def _add_calendar_event(client: anthropic.Anthropic, message: str) -> str:
+    """Try to extract and create a calendar event. Returns a confirmation string or ''."""
+    if not _CALENDAR_WRITE_RE.search(message):
+        return ""
+    service = _get_calendar_service()
+    if not service:
+        return ""
+    tz = os.environ.get("CALENDAR_TIMEZONE", "Australia/Sydney")
+    today = datetime.now().strftime("%A %d %B %Y")
+    try:
+        extraction = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=150,
+            messages=[{"role": "user", "content": (
+                f"Today is {today}. Extract a calendar event from this message as JSON with keys: "
+                f"title (string), date (YYYY-MM-DD), time (HH:MM 24h), duration_hours (number, default 1). "
+                f"Return ONLY the JSON or null if no clear event. Message: \"{message}\""
+            )}],
+        )
+        raw = extraction.content[0].text.strip()
+        if raw.lower() == "null" or not raw.startswith("{"):
+            return ""
+        event_data = json.loads(raw)
+        start_str = f"{event_data['date']}T{event_data['time']}:00"
+        start_dt = datetime.fromisoformat(start_str)
+        end_dt = start_dt + timedelta(hours=float(event_data.get("duration_hours", 1)))
+        service.events().insert(
+            calendarId="primary",
+            body={
+                "summary": event_data["title"],
+                "start": {"dateTime": start_dt.isoformat(), "timeZone": tz},
+                "end": {"dateTime": end_dt.isoformat(), "timeZone": tz},
+            },
+        ).execute()
+        friendly = start_dt.strftime("%A %d %B at %H:%M")
+        return f"[I've added '{event_data['title']}' to the calendar: {friendly}]"
+    except Exception as exc:
+        logger.warning("Calendar add failed: %s", exc)
         return ""
 
 
@@ -265,9 +372,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
-    # Inject WhatsApp context if the message is asking about WhatsApp
     wa_context = await loop.run_in_executor(_executor, _fetch_whatsapp_context, text)
-    augmented_text = f"{wa_context}\n\nUser: {text}" if wa_context else text
+    cal_context = await loop.run_in_executor(_executor, _fetch_calendar_context, text)
+    cal_action = await loop.run_in_executor(_executor, _add_calendar_event, client, text)
+
+    contexts = "\n\n".join(c for c in [wa_context, cal_context, cal_action] if c)
+    augmented_text = f"{contexts}\n\nUser: {text}" if contexts else text
 
     try:
         response = await loop.run_in_executor(
